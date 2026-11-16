@@ -61,6 +61,7 @@ private:
     QKeySequenceEdit* hotkey_ = nullptr;
     QKeySequenceEdit* translateHotkey_ = nullptr;
     QLineEdit* modelPath_ = nullptr;
+    QString loadedModelPath_;
     QComboBox* computeBackend_ = nullptr;
 
     QCheckBox* overlayEnabled_ = nullptr;

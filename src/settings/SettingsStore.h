@@ -34,6 +34,8 @@ public:
 
     QString modelPath() const;           // path to ggml-*.bin
     void setModelPath(const QString& path);
+    // The user picked a model; modelPath() is not an autodetect result.
+    bool hasStoredModelPath() const;
 
     // Compute backend id: "cpu", "vulkan", "cuda", ... or empty/"auto" (prefer
     // GPU when one is available). Resolved at runtime by ComputeBackends.
@@ -144,6 +146,7 @@ public:
 
     // Best-effort scan for a bundled model if none is configured.
     static QString autodetectModelPath();
+    static QString autodetectWhisperModelPath();
 
 signals:
     void changed();

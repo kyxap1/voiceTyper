@@ -7,6 +7,7 @@
 #include <QString>
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <thread>
 
@@ -14,6 +15,8 @@ namespace vt {
 
 class SettingsStore;
 class IAsrEngine;
+struct ModelSpec;
+struct TranscriptionOptions;
 class LlmPostProcessor;
 class RecordingController;
 class ClipboardPasteService;
@@ -58,6 +61,13 @@ private slots:
 
 private:
     void buildAsrEngine();
+    // Fetches the default Parakeet model, then switches to it once idle.
+    void downloadParakeet();
+    void switchToParakeet();
+    void downloadModel(const ModelSpec& spec, std::function<void(bool ok)> done);
+    // asr_, or the whisper fallback when asr_ is Parakeet and the take needs
+    // translation or a language Parakeet lacks.
+    IAsrEngine* engineFor(const TranscriptionOptions& opt);
     // Shows the recovery note set by buildAsrEngine() (GPU->CPU fallback) once a
     // tray exists — buildAsrEngine runs before the tray during initialize().
     void flushPendingNotice();
@@ -75,6 +85,8 @@ private:
     void pasteFinalText(const QString& finalText);
 
     std::unique_ptr<IAsrEngine> asr_;
+    std::unique_ptr<IAsrEngine> whisperFallback_;
+    bool whisperDownloading_ = false;
     CommandEngine commandEngine_;
 
     SettingsStore* settings_ = nullptr;

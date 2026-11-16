@@ -144,6 +144,9 @@ QString SettingsStore::modelPath() const {
         return stored;
     return autodetectModelPath();
 }
+bool SettingsStore::hasStoredModelPath() const {
+    return !QSettings().value(keys::kModelPath).toString().isEmpty();
+}
 void SettingsStore::setModelPath(const QString& path) {
     QSettings s;
     s.setValue(keys::kModelPath, path);
@@ -387,7 +390,9 @@ bool SettingsStore::saveCommandsJson(const QString& json, QString* error) {
     return true;
 }
 
-QString SettingsStore::autodetectModelPath() {
+namespace {
+
+QStringList modelSearchDirs() {
     QStringList searchDirs;
     searchDirs << QDir(QCoreApplication::applicationDirPath()).filePath("models")
                << QCoreApplication::applicationDirPath()
@@ -398,9 +403,35 @@ QString SettingsStore::autodetectModelPath() {
                << QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
                       .filePath("models")
                << QStringLiteral("models");
+    return searchDirs;
+}
 
-    const QStringList patterns{"ggml-*.bin", "*.bin", "*.gguf"};
+} // namespace
+
+QString SettingsStore::autodetectModelPath() {
+    const QStringList searchDirs = modelSearchDirs();
+    // Parakeet wins when present. Its model is a folder, so look one level down.
     for (const QString& dir : searchDirs) {
+        QDir d(dir);
+        if (!d.exists())
+            continue;
+        QStringList dirs{d.absolutePath()};
+        for (const QString& sub : d.entryList(QDir::Dirs | QDir::NoDotAndDotDot))
+            dirs << d.filePath(sub);
+        for (const QString& m : dirs) {
+            const QDir md(m);
+            const QStringList enc = md.entryList({QStringLiteral("encoder*.onnx")}, QDir::Files);
+            if (!enc.isEmpty())
+                return md.filePath(enc.first());
+        }
+    }
+
+    return autodetectWhisperModelPath();
+}
+
+QString SettingsStore::autodetectWhisperModelPath() {
+    const QStringList patterns{"ggml-*.bin", "*.bin", "*.gguf"};
+    for (const QString& dir : modelSearchDirs()) {
         QDir d(dir);
         if (!d.exists())
             continue;

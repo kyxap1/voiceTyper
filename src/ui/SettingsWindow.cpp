@@ -117,7 +117,7 @@ void SettingsWindow::buildUi() {
     modelRow->setContentsMargins(0, 0, 0, 0);
     modelRow->addWidget(modelPath_, 1);
     modelRow->addWidget(browse);
-    form->addRow(tr("Whisper model:"), modelRow);
+    form->addRow(tr("Model:"), modelRow);
 
     // Link for model downloads as a separate form row — avoids the QFormLayout
     // squishing bug that occurs when a multi-row QWidget wrapper is used as a
@@ -365,14 +365,14 @@ QWidget* SettingsWindow::buildLlmTab() {
 
 void SettingsWindow::openModelDownloadsDialog() {
     QDialog dlg(this);
-    dlg.setWindowTitle(tr("Download a Whisper model"));
+    dlg.setWindowTitle(tr("Download a model"));
     dlg.setMinimumWidth(380);
 
     auto* lay = new QVBoxLayout(&dlg);
 
     auto* intro = new QLabel(
         tr("Direct downloads from huggingface.co. Save the .bin file, then "
-           "point \"Whisper model\" at it via Browse."),
+           "point \"Model\" at it via Browse."),
         &dlg);
     intro->setWordWrap(true);
     lay->addWidget(intro);
@@ -402,6 +402,17 @@ void SettingsWindow::openModelDownloadsDialog() {
         lay->addWidget(row);
     }
 
+    auto* parakeet = new QLabel(
+        tr("<a href=\"https://huggingface.co/csukuangfj/"
+           "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/tree/main\">Parakeet v3</a>"
+           " &mdash; ~670 MB, 25 European languages. The default: downloaded "
+           "automatically on first launch."),
+        &dlg);
+    parakeet->setWordWrap(true);
+    parakeet->setOpenExternalLinks(true);
+    parakeet->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    lay->addWidget(parakeet);
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     lay->addWidget(buttons);
@@ -420,7 +431,8 @@ void SettingsWindow::loadFromSettings() {
                                          QKeySequence::PortableText));
     translateHotkey_->setKeySequence(QKeySequence(settings_->translateHotkey(),
                                                    QKeySequence::PortableText));
-    modelPath_->setText(settings_->modelPath());
+    loadedModelPath_ = settings_->modelPath();
+    modelPath_->setText(loadedModelPath_);
 
     // Select the saved backend; if it's empty ("auto") or no longer available,
     // prefer the first GPU when present, otherwise CPU.
@@ -468,8 +480,8 @@ void SettingsWindow::loadFromSettings() {
 
 void SettingsWindow::browseModel() {
     const QString file = QFileDialog::getOpenFileName(
-        this, tr("Select whisper model"), modelPath_->text(),
-        tr("Whisper models (*.bin *.gguf);;All files (*)"));
+        this, tr("Select model"), modelPath_->text(),
+        tr("Whisper (*.bin *.gguf) or Parakeet encoder (encoder*.onnx) (*.bin *.gguf *.onnx);;All files (*)"));
     if (!file.isEmpty())
         modelPath_->setText(file);
 }
@@ -591,7 +603,10 @@ void SettingsWindow::apply() {
         hotkey_->keySequence().toString(QKeySequence::PortableText));
     settings_->setTranslateHotkey(
         translateHotkey_->keySequence().toString(QKeySequence::PortableText));
-    settings_->setModelPath(modelPath_->text());
+    // An untouched field holds an autodetect result or a stale path; storing it
+    // would pin that model and block the automatic switch to Parakeet.
+    if (modelPath_->text() != loadedModelPath_)
+        settings_->setModelPath(modelPath_->text());
     settings_->setComputeBackend(computeBackend_->currentData().toString());
 
     settings_->setOverlayEnabled(overlayEnabled_->isChecked());

@@ -62,6 +62,9 @@ qt_standard_project_setup()
 include(WhisperCpp)
 voicetyper_add_whisper()
 
+include(SherpaOnnx)
+voicetyper_add_sherpa_onnx()
+
 # ----------------------------------------------------------------------------
 # Sources
 # ----------------------------------------------------------------------------
@@ -134,6 +137,14 @@ if(VOICETYPER_WITH_WHISPER)
         src/asr/WhisperAsrEngine.h)
 endif()
 
+if(VOICETYPER_WITH_PARAKEET)
+    list(APPEND VOICETYPER_SOURCES
+        src/asr/ParakeetAsrEngine.cpp
+        src/asr/ParakeetAsrEngine.h
+        src/asr/ModelDownloader.cpp
+        src/asr/ModelDownloader.h)
+endif()
+
 # ----------------------------------------------------------------------------
 # Platform-specific input synthesis (global hotkey + paste keystroke)
 # ----------------------------------------------------------------------------
@@ -193,6 +204,10 @@ target_compile_definitions(voiceTyper PRIVATE VT_VERSION="${VT_VERSION}")
 if(VOICETYPER_WITH_WHISPER)
     target_link_libraries(voiceTyper PRIVATE whisper)
     target_compile_definitions(voiceTyper PRIVATE VOICETYPER_WITH_WHISPER=1)
+endif()
+if(VOICETYPER_WITH_PARAKEET)
+    target_link_libraries(voiceTyper PRIVATE sherpa-onnx-c-api)
+    target_compile_definitions(voiceTyper PRIVATE VOICETYPER_WITH_PARAKEET=1)
 endif()
 
 # CUDA build identity (set by voicetyper_add_whisper() when the CUDA backend is

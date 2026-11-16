@@ -444,8 +444,19 @@ scripts/download-model.sh large-v3-turbo-q5_0   # best quality/speed (~570 MB)
 
 Models land in `./models`. The app auto-detects a model next to the binary or in
 `models/` (`ggml-*.bin`, `*.bin`, `*.gguf`), or you pick the file in
-**Settings → Whisper model**. Size/quality guide: `small-q5_1` (~180 MB) ·
+**Settings → Model**. Size/quality guide: `small-q5_1` (~180 MB) ·
 `medium-q5_0` (~540 MB) · `large-v3-turbo-q5_0` (~570 MB) · `large-v3-q5_0` (~1.1 GB).
+
+**Parakeet v3** (NVIDIA, 25 European languages, detects the language itself)
+runs through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) instead of
+whisper.cpp. It is the default: unless a model is chosen in Settings, the app
+downloads
+[sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8](https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/tree/main)
+(~670 MB, checksum-verified) on first launch and switches to it when done;
+until then any bundled whisper model is used. Picking a whisper `.bin` in
+Settings opts out. Takes that need translation or a language Parakeet lacks go
+to a whisper model instead (the bundled one, or `small-q5_1` downloaded on
+first need).
 
 ### Build & run — Ubuntu
 

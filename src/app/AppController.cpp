@@ -25,6 +25,11 @@
 #ifdef VOICETYPER_WITH_WHISPER
 #include "asr/WhisperAsrEngine.h"
 #endif
+#ifdef VOICETYPER_WITH_PARAKEET
+#include "asr/ParakeetAsrEngine.h"
+#include "asr/ModelDownloader.h"
+#include <QTimer>
+#endif
 
 #include <QCoreApplication>
 #include <QtGlobal>
@@ -120,6 +125,14 @@ bool AppController::initialize() {
     // (GPU->CPU fallback) now that we can show it.
     flushPendingNotice();
 
+#ifdef VOICETYPER_WITH_PARAKEET
+    // Parakeet is the default engine: fetch it unless the user picked a model
+    // or it is already on disk. Whatever loaded meanwhile keeps working.
+    if (!settings_->hasStoredModelPath() &&
+        !ParakeetAsrEngine::isParakeetModel(lastModelPath_.toStdString())) {
+        downloadParakeet();
+    } else
+#endif
     if (!asr_->isReady()) {
         tray_->showMessage(
             tr("voiceTyper"),
@@ -135,6 +148,15 @@ bool AppController::initialize() {
 void AppController::buildAsrEngine() {
     lastModelPath_ = settings_->modelPath();
     lastComputeBackend_ = settings_->computeBackend();
+
+#ifdef VOICETYPER_WITH_PARAKEET
+    // The model file picks the engine: a Parakeet encoder (*.onnx) or whisper.
+    if (ParakeetAsrEngine::isParakeetModel(lastModelPath_.toStdString())) {
+        asr_ = std::make_unique<ParakeetAsrEngine>(lastModelPath_.toStdString());
+        flushPendingNotice();
+        return;
+    }
+#endif
 
 #ifdef VOICETYPER_WITH_WHISPER
     // Capture ggml/whisper diagnostics (incl. the CUDA "error: ..." line and the
@@ -236,6 +258,91 @@ void AppController::buildAsrEngine() {
 
     flushPendingNotice();
 }
+
+#ifdef VOICETYPER_WITH_PARAKEET
+void AppController::downloadModel(const ModelSpec& spec,
+                                  std::function<void(bool)> done) {
+    auto* dl = new ModelDownloader(spec, this);
+    connect(dl, &ModelDownloader::failed, this, [this, dl, done](const QString& error) {
+        dl->deleteLater();
+        tray_->showMessage(tr("voiceTyper"),
+                           tr("Speech model download failed: %1. It is retried "
+                              "later.").arg(error));
+        done(false);
+    });
+    connect(dl, &ModelDownloader::finished, this, [dl, done]() {
+        dl->deleteLater();
+        done(true);
+    });
+    dl->start();
+}
+
+void AppController::downloadParakeet() {
+    tray_->showMessage(tr("voiceTyper"),
+                       tr("Downloading the Parakeet speech model (~670 MB). "
+                          "voiceTyper switches to it when done."));
+    // A failure is retried on the next launch.
+    downloadModel(ModelDownloader::parakeet(), [this](bool ok) {
+        if (ok)
+            switchToParakeet();
+    });
+}
+
+void AppController::switchToParakeet() {
+    // A model the user picked while the download ran wins.
+    if (settings_->hasStoredModelPath())
+        return;
+    // asr_ is in use during a take; swap once idle.
+    if (processing_ || recording_->isRecording()) {
+        QTimer::singleShot(1000, this, &AppController::switchToParakeet);
+        return;
+    }
+    settings_->setModelPath(ModelDownloader::mainPath(ModelDownloader::parakeet()));
+    buildAsrEngine();
+    rebuildRecording();
+    qCInfo(vtApp) << "ASR backend reloaded:"
+                  << QString::fromStdString(asr_->backendName());
+    tray_->showMessage(tr("voiceTyper"), asr_->isReady()
+                           ? tr("Parakeet speech model is ready.")
+                           : tr("Parakeet speech model failed to load."));
+}
+
+IAsrEngine* AppController::engineFor(const TranscriptionOptions& opt) {
+    if (!dynamic_cast<ParakeetAsrEngine*>(asr_.get()) ||
+        (!opt.translate && ParakeetAsrEngine::supportsLanguage(opt.language)))
+        return asr_.get();
+#ifdef VOICETYPER_WITH_WHISPER
+    // Parakeet can't translate or handle this language: whisper takes the take.
+    if (!whisperFallback_) {
+        const QString path = SettingsStore::autodetectWhisperModelPath();
+        if (path.isEmpty()) {
+            if (!whisperDownloading_) {
+                whisperDownloading_ = true;
+                tray_->showMessage(
+                    tr("voiceTyper"),
+                    tr("Translation and this language need the whisper model; "
+                       "downloading it (~180 MB). Until then Parakeet "
+                       "transcribes without translating."));
+                downloadModel(ModelDownloader::whisperSmall(),
+                              [this](bool) { whisperDownloading_ = false; });
+            }
+            return asr_.get();
+        }
+        const ResolvedBackend rb =
+            resolveBackend(settings_->computeBackend().toStdString());
+        // ponytail: no GPU crash breadcrumb for this engine; buildAsrEngine()
+        // guards the main one. Add it if GPU crashes show up here.
+        whisperFallback_ = std::make_unique<WhisperAsrEngine>(
+            path.toStdString(), rb.useGpu, rb.gpuDevice, false, rb.label,
+            SettingsStore::vadModelPath().toStdString());
+        qCInfo(vtAsr) << "Whisper for translation:" << path;
+    }
+    if (whisperFallback_->isReady())
+        return whisperFallback_.get();
+#endif
+    return asr_.get();
+}
+#endif
 
 void AppController::flushPendingNotice() {
     if (pendingNotice_.isEmpty() || !tray_)
@@ -468,8 +575,13 @@ void AppController::startTranscription() {
     if (worker_.joinable())
         worker_.join();
 
-    worker_ = std::thread([this, audio = std::move(audio), opt]() {
-        const TranscriptionResult res = asr_->transcribe(audio, opt);
+#ifdef VOICETYPER_WITH_PARAKEET
+    IAsrEngine* engine = engineFor(opt);
+#else
+    IAsrEngine* engine = asr_.get();
+#endif
+    worker_ = std::thread([this, engine, audio = std::move(audio), opt]() {
+        const TranscriptionResult res = engine->transcribe(audio, opt);
         const QString text =
             res.ok ? QString::fromStdString(res.text) : QString();
         qCInfo(vtAsr) << "Transcribed" << audio.durationSeconds()
